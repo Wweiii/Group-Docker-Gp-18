@@ -115,6 +115,8 @@ def write(update: Update, context: CallbackContext) -> None:
         movie_title, movie_review = input_text.split('.', maxsplit=1)
 
         # push movie name to movie_name list in redis
+        if(redis1.get(movie_title) != None):
+            redis1.lrem('movie_name', 0, movie_title)
         redis1.lpush('movie_name', movie_title)
 
         #log
@@ -144,7 +146,7 @@ def checkAllMovie(update: Update, context) -> None:
             msg  = msg + movie_title.decode('UTF-8') + " \n"
 
         #reply user all movie title
-        update.message.reply_text('Movie Title \n' + msg + '\n' +
+        update.message.reply_text('Movie Title \n' + '\n' + msg + '\n' +
                                   'Type /check title_name to check the review')
         
     except (IndexError, ValueError):
@@ -211,6 +213,8 @@ def addMountain(update: Update, context: CallbackContext) -> None:
 
         for mountain_name, mountain_info in mountains.items():
             #push mountain name to mountain_name list in redis
+            if (redis1.hgetall(mountain_name) != None):
+                redis1.lrem('mountain_name', 0, mountain_name)
             redis1.lpush('mountain_name', mountain_name)
             # 将每条hiking route以多个键值对的形式存储在redis中，key为山峰的名称，value为包含img_url和description两个字段的hash map
             redis1.hmset(mountain_name,
