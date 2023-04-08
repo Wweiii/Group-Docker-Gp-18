@@ -1,6 +1,7 @@
 FROM python
 COPY chatbot.py .
 COPY requirements.txt .
+COPY mountains.json .
 RUN pip install pip update
 RUN pip freeze > requirements.txt
 RUN pip install -r requirements.txt
