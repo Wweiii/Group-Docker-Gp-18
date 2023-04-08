@@ -1,26 +1,23 @@
-from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
+from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, InputMediaPhoto
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext, ConversationHandler, \
     ContextTypes, filters
 import configparser
 import os
 import logging
+
 import redis
 global redis1
 
-MovieReview = range(4)
+import json
+
 
 def main():
-    # Load your token and create an Updater for your Bot
-    # config = configparser.ConfigParser()
-    # config.read('config.ini')
-    # updater = Updater(token=(config['TELEGRAM']['ACCESS_TOKEN']), use_context=True)
-    #update environment
+    global redis1
+
     updater = Updater(token=(os.environ['ACCESS_TOKEN']), use_context=True)
     dispatcher = updater.dispatcher
 
-    global redis1
-    # redis1 = redis.Redis(host=(config['REDIS']['HOST']), password=(config['REDIS']
-    # ['PASSWORD']), port=(config['REDIS']['REDISPORT']))
+    
     redis1 = redis.Redis(host=(os.environ['HOST']), password=
     (os.environ['PASSWORD']), port=(os.environ['REDISPORT']))
     # You can set this logging module, so you will know when and why things do not work as expected
@@ -29,19 +26,16 @@ def main():
 
     # register a dispatcher to handle message: here we register an echo dispatcher
     echo_handler = MessageHandler(Filters.text & (~Filters.command), echo)
-    # conv_handler = ConversationHandler(
-    #     entry_points=[CommandHandler("start", callback=start)],
-    #     states={
-    #         MovieReview: [CommandHandler("write", callback=write), CommandHandler("check", callback=help_command)],
-    #     },
-    #     fallbacks=[CommandHandler("cancel", callback=cancel)],
-    # )
+
     dispatcher.add_handler(echo_handler)
-    # dispatcher.add_handler(conv_handler)
     dispatcher.add_handler(CommandHandler("start", start))
     dispatcher.add_handler(CommandHandler("write", write))
-    dispatcher.add_handler(CommandHandler("checkAll", checkAll))
+    dispatcher.add_handler(CommandHandler("checkAllMovie", checkAllMovie))
     dispatcher.add_handler(CommandHandler("check", check))
+    dispatcher.add_handler(CommandHandler("photo",photo))
+    dispatcher.add_handler(CommandHandler("checkHikingRoute", checkHikingRoute))
+
+
     dispatcher.add_handler(CommandHandler("cancel", cancel))
 
 
@@ -49,6 +43,11 @@ def main():
     dispatcher.add_handler(CommandHandler("add", add))
     dispatcher.add_handler(CommandHandler("help", help_command))
     dispatcher.add_handler(CommandHandler("hello", hello_command))
+    # dispatcher.add_handler(CommandHandler("addmountain", addMountain))
+    # dispatcher.add_handler(CommandHandler("movie", Movie))
+    # dispatcher.add_handler(CommandHandler("mountain", Mountain))
+    # dispatcher.add_handler(CommandHandler("clean", cleanDB))
+
 
     # To start the bot:
     updater.start_polling()
@@ -63,81 +62,98 @@ def echo(update, context):
 
 # Define a few command handlers. These usually take the two arguments update and
 # context. Error handlers also receive the raised TelegramError object in error.
-def help_command(update: Update, context: CallbackContext) -> None:
+def help_command(update: Update, context) -> None:
     """Send a message when the command /help is issued."""
     update.message.reply_text('Helping you helping you.')
 
 def hello_command(update: Update, context: CallbackContext) -> None:
     """Send a message when the command /help is issued."""
-    update.message.reply_text('Good day,' + str(context.args[0]) + '!')
+    update.message.reply_text('Good day, ' + str(context.args[0]) + '!')
 
 
 def add(update: Update, context: CallbackContext) -> None:
     """Send a message when the command /add is issued."""
     try:
-        global redis1
-        logging.info(context.args[0])
+        # global redis1
+        logging.info('Keyword: ' + context.args[0])
         # logging.info(context.args[1])
         msg = context.args[0] # /add keyword <-- this should store the keyword
-        redis1.incr(msg)
+        # in Redis database, automatically set 'msg' as a key, increase its value by 1
+        redis1.incr(msg) 
         update.message.reply_text('You have said ' + msg + ' for ' +
         redis1.get(msg).decode('UTF-8') + ' times.')
     except (IndexError, ValueError):
+        # Reply to the user with a message suggesting the correct command format.
         update.message.reply_text('Usage: /add <keyword>')
 
-def start(update: Update, context: CallbackContext) -> int:
-    """Starts the conversation and asks the user about their gender."""
-    reply_keyboard = [["/write", "/check"]]
+
+# start a conversation by entering '/start'
+def start(update: Update, context) -> int:
+    reply_keyboard = [["/checkAllMovie", "/checkHikingRoute", "/cancel"]]
 
     update.message.reply_text(
-        "Hi! My name is Gp18 Bot. I will hold a conversation with you. "
-        "Send /cancel to stop talking to me.\n\n"
-        "Do you want to write movie reviews or read movie reviews?\n"
-        "send /write to write movie reviews \nor /check to read movie reviews",
+        "Hi! My name is Gp18 Bot. I will hold a conversation with you.\n\n"
+        
+        "Do you want to write a movie review, read a movie review, see the hiking information?\n"
+        "1. send /checkAllMovie to read see all movie's name'\n"
+        "2. send /write + <movie title>. + <movie review> to write a movie review\n"
+        "3. send /checkHikingRoute to see all mountain's name\n"
+        "4. send /photo + <mountain name> to see a hiking route and a photo\n"
+        "5. Send /cancel to stop talking to me\n",
         reply_markup=ReplyKeyboardMarkup(
-            reply_keyboard, one_time_keyboard=True, input_field_placeholder="write or check"
+            reply_keyboard, one_time_keyboard=True, input_field_placeholder="checkAllMovie, write, checkHikingRoute, photo or cancel"
         ),
     )
-
     return write
 
+
+# write a review in the format of '/write <movie_title>. <movie_review>'
 def write(update: Update, context: CallbackContext) -> None:
-    """Stores the selected gender and asks for a photo."""
-    # update.message.reply_text('Helping you helping you.')
     try:
-        global redis1
-        title = context.args[0]
-        # review = context.args[1]
-        num = len(context.args)
-        review = ""
-        i = 0
-        for i in range(1,num):
-            review = review + context.args[i] + " "
+        input_text = ' '.join(context.args) # transfer a list to string
+        # detect the first full stop, split the string as a separator.
+        movie_title, movie_review = input_text.split('.', maxsplit=1)
 
-        logging.info(context.args[0])
-        logging.info(review)
-        # logging.info(re)
-        redis1.__setitem__(title, review)
-        update.message.reply_text('Title: ' + title + '\nContent: \n' +
-        redis1.get(title).decode('UTF-8'))
+        # push movie name to movie_name list in redis
+        redis1.lpush('movie_name', movie_title)
+
+        #log
+        logging.info('context: ' + movie_title)
+        logging.info('review: ' + movie_review)
+
+        # store to Redis database with 'movie_title' as the key.
+        redis1.set(movie_title, movie_review)
+
+        #reply user movie title and movie review
+        update.message.reply_text('Movie Title: \n' + movie_title + '\nMovie Review: ' +
+                                  redis1.get(movie_title).decode('UTF-8'))
+
     except (IndexError, ValueError):
-        update.message.reply_text('Usage: /write <keyword>')
+        update.message.reply_text('Usage: /write <movie_title>. <movie_review>')
 
-def checkAll(update: Update, context: CallbackContext) -> None:
+
+def checkAllMovie(update: Update, context) -> None:
     try:
-        global redis1
-        title = redis1.keys()
-        # logging.info(title.decode('UTF-8'))
-        msg = ""
-        for i in range(len(title)):
-            msg = msg + title[i].decode('UTF-8') + "\n"
-        update.message.reply_text('Title: \n' + msg + '\n' + 'Type /check title_name to check the review')
+
+        #get movie title from movie_name list
+        movie_titles_list = redis1.lrange('movie_name',0,-1)
+        msg = ''
+
+        # get movie title from movie_titles_list
+        for movie_title in movie_titles_list:
+            msg  = msg + movie_title.decode('UTF-8') + " \n"
+
+        #reply user all movie title
+        update.message.reply_text('Movie Title \n' + msg + '\n' +
+                                  'Type /check title_name to check the review')
+        
     except (IndexError, ValueError):
         update.message.reply_text('error')
 
+#check a movie review
 def check(update: Update, context: CallbackContext) -> None:
     try:
-        global redis1
+        # global redis1
         title = context.args[0]
         review = redis1.get(title).decode('UTF-8')
         # logging.info(title.decode('UTF-8'))
@@ -145,11 +161,107 @@ def check(update: Update, context: CallbackContext) -> None:
     except (IndexError, ValueError):
         update.message.reply_text('error')
 
+# see a hiking route and a photo,
+def photo(update: Update, context: CallbackContext) -> None:
+
+    try:
+        # get the mountain name from the input
+        mountain_name = ' '.join(context.args)
+        # logging.info(mountain_name)
+        mountain_route = 'mountain_route'
+
+        # get description from Redis according to mountain name
+        mountain_info = redis1.hgetall(mountain_route)
+        logging.info(mountain_info)
+
+        # get the URL and description according to mountain_name
+        img_url = redis1.hget(mountain_name, 'img_url')
+        description = redis1.hget(mountain_name, 'description')
+
+        logging.info(mountain_info)
+        logging.info('img_url = ' + str(img_url))
+        logging.info('description = ' + str(description))
+        
+
+        # if not mountain_info:
+        #     context.bot.send_message(chat_id=update.message.chat_id, text="Sorry, no information found for the specified mountain.")
+        #     return
+        
+        # # check if img_url and description exist in mountain_info dictionary
+        # if 'img_url' not in mountain_info or 'description' not in mountain_info:
+        #     context.bot.send_message(chat_id=update.message.chat_id, text="Sorry, the information for the specified mountain is incomplete.")
+        #     return
+
+        
+        update.message.reply_text('Mountain Name: ' + mountain_name + '\n\n'
+                                  + 'Mountain Image: ' + img_url.decode('UTF-8')
+                                  + '\n\n' + 'Hiking Route: ' + description.decode('UTF-8'))
 
 
 
+    except (IndexError, ValueError):
+        update.message.reply_text('Usage: /photo <mountain_name>')
 
-def cancel(update: Update, context: CallbackContext) -> int:
+#add Mountain info to redis
+def addMountain(update: Update, context: CallbackContext) -> None:
+    try:
+        # read mountains' information from 'mountains.json'
+        with open("mountains.json", 'r') as f:
+            mountains = json.load(f)
+
+        for mountain_name, mountain_info in mountains.items():
+            #push mountain name to mountain_name list in redis
+            redis1.lpush('mountain_name', mountain_name)
+            # 将每条hiking route以多个键值对的形式存储在redis中，key为山峰的名称，value为包含img_url和description两个字段的hash map
+            redis1.hmset(mountain_name,
+                         {'img_url': mountain_info['img_url'],
+                          'description': mountain_info['description']})
+    except(IndexError, ValueError):
+        logging.info('mountain info add fail!')
+
+#check all hiking route
+def checkHikingRoute(update: Update, context: CallbackContext) -> None:
+    msg = ''
+    try:
+        hiking_route_list = redis1.lrange('mountain_name',0,-1)
+        logging.info(hiking_route_list)
+        for mountain_name in hiking_route_list:
+            logging.info('mountain_name: ' + mountain_name.decode('UTF-8'))
+            # m_str = mountain_name.decode('UTF-8')
+            # logging.info('m_str ' + m_str)
+            msg += mountain_name.decode('UTF-8') + ' \n'
+        update.message.reply_text('Mountain name \n' + msg + 'Type /photo mountain_name to check the mountain details')
+    except(IndexError, ValueError):
+        update.message.reply_text('Usage: /checkHikingRoute <mountain name>')
+
+
+#clean DB in redis //danger
+def cleanDB(update, context) -> None:
+    try:
+        redis1.flushall()
+        logging.info('clean db success!')
+    except (IndexError, ValueError):
+        logging.info('try again!')
+
+
+#test
+def Movie(update, context) -> None:
+    try:
+        movie_name = redis1.lrange('movie_name',0,-1)
+        logging.info(movie_name)
+    except(IndexError,ValueError):
+        logging.info('check movie title fail!')
+
+#test
+def Mountain(update, context) -> None:
+    try:
+        mountain_name = redis1.lrange('mountain_name',0,-1)
+        logging.info(mountain_name)
+    except(IndexError,ValueError):
+        logging.info('check movie title fail!')
+
+
+def cancel(update: Update, context) -> int:
     """Cancels and ends the conversation."""
     user = update.message.from_user
     # logger.info("User %s canceled the conversation.", user.first_name)
@@ -160,4 +272,5 @@ def cancel(update: Update, context: CallbackContext) -> int:
     return ConversationHandler.END
 
 if __name__ == '__main__':
+    
     main()
