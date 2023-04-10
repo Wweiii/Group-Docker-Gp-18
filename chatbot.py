@@ -9,10 +9,17 @@ import redis
 global redis1
 
 import json
+import pymongo
+myclient = pymongo.MongoClient('mongodb://huang:coGpqKLbSMEsjI839oMXYzWll2MkyTH3OzF76OQF26N3bc1FjGRV0nRl4yHVovUkBhwAzLhAnMF2hrPoTXVPAA==@huang.mongo.cosmos.azure.com:10255/?ssl=true&replicaSet=globaldb&retrywrites=false&maxIdleTimeMS=120000&appName=@huang@')
+mydb = myclient['ChatBotDB']
+moviecol = mydb['Movie']
+mountaincol = mydb['Mountain']
+
 
 
 def main():
     global redis1
+
 
     updater = Updater(token=(os.environ['ACCESS_TOKEN']), use_context=True)
     dispatcher = updater.dispatcher
@@ -43,7 +50,7 @@ def main():
     dispatcher.add_handler(CommandHandler("add", add))
     dispatcher.add_handler(CommandHandler("help", help_command))
     dispatcher.add_handler(CommandHandler("hello", hello_command))
-    # dispatcher.add_handler(CommandHandler("addmountain", addMountain))
+    dispatcher.add_handler(CommandHandler("addmountain", addMountain))
     # dispatcher.add_handler(CommandHandler("movie", Movie))
     # dispatcher.add_handler(CommandHandler("mountain", Mountain))
     # dispatcher.add_handler(CommandHandler("clean", cleanDB))
@@ -115,20 +122,27 @@ def write(update: Update, context: CallbackContext) -> None:
         movie_title, movie_review = input_text.split('.', maxsplit=1)
 
         # push movie name to movie_name list in redis
-        if(redis1.get(movie_title) != None):
-            redis1.lrem('movie_name', 0, movie_title)
-        redis1.lpush('movie_name', movie_title)
+        # if(redis1.get(movie_title) != None):
+        #     redis1.lrem('movie_name', 0, movie_title)
+        # redis1.lpush('movie_name', movie_title)
+        record = {'movie_title': movie_title,'movie_review': movie_review}
+        moviecol.insert_one(record)
+        movie_record_fromdb = moviecol.find_one({'movie_title': movie_title})
+        review = movie_record_fromdb['movie_review']
+
 
         #log
-        logging.info('context: ' + movie_title)
-        logging.info('review: ' + movie_review)
+        # logging.info('context: ' + movie_title)
+        # logging.info('review: ' + movie_review)
+        logging.info(movie_record_fromdb)
+
 
         # store to Redis database with 'movie_title' as the key.
-        redis1.set(movie_title, movie_review)
+        # redis1.set(movie_title, movie_review)
 
         #reply user movie title and movie review
         update.message.reply_text('Movie Title: \n' + movie_title + '\nMovie Review: ' +
-                                  redis1.get(movie_title).decode('UTF-8'))
+                                  review)
 
     except (IndexError, ValueError):
         update.message.reply_text('Usage: /write <movie_title>. <movie_review>')
@@ -138,12 +152,20 @@ def checkAllMovie(update: Update, context) -> None:
     try:
 
         #get movie title from movie_name list
-        movie_titles_list = redis1.lrange('movie_name',0,-1)
+        # movie_titles_list = redis1.lrange('movie_name',0,-1)
+        movie_list = moviecol.find()
+        logging.info(movie_list)
+        movie_titles_list = []
+        for result in movie_list:
+            movie_titles_list.append(result)
+        logging.info(movie_titles_list)
+
         msg = ''
 
         # get movie title from movie_titles_list
-        for movie_title in movie_titles_list:
-            msg  = msg + movie_title.decode('UTF-8') + " \n"
+        for movie_record in movie_titles_list:
+            movie_title = movie_record['movie_title']
+            msg  = msg + movie_title + " \n"
 
         #reply user all movie title
         update.message.reply_text('Movie Title \n' + '\n' + msg + '\n' +
@@ -157,7 +179,9 @@ def check(update: Update, context: CallbackContext) -> None:
     try:
         # global redis1
         title = context.args[0]
-        review = redis1.get(title).decode('UTF-8')
+        # review = redis1.get(title).decode('UTF-8')
+        record = moviecol.find_one({'movie_title': title})
+        review = record['movie_review']
         # logging.info(title.decode('UTF-8'))
         update.message.reply_text('Title: ' + title + '\nReview: \n' + review)
     except (IndexError, ValueError):
@@ -173,14 +197,17 @@ def photo(update: Update, context: CallbackContext) -> None:
         mountain_route = 'mountain_route'
 
         # get description from Redis according to mountain name
-        mountain_info = redis1.hgetall(mountain_route)
-        logging.info(mountain_info)
+        # mountain_info = redis1.hgetall(mountain_route)
+        # logging.info(mountain_info)
 
         # get the URL and description according to mountain_name
-        img_url = redis1.hget(mountain_name, 'img_url')
-        description = redis1.hget(mountain_name, 'description')
+        # img_url = redis1.hget(mountain_name, 'img_url')
+        # description = redis1.hget(mountain_name, 'description')
+        mountain_info = mountaincol.find_one({'mountain_name': mountain_name})
+        img_url = mountain_info['img_url']
+        description = mountain_info['description']
 
-        logging.info(mountain_info)
+        # logging.info(mountain_info)
         logging.info('img_url = ' + str(img_url))
         logging.info('description = ' + str(description))
         
@@ -196,8 +223,8 @@ def photo(update: Update, context: CallbackContext) -> None:
 
         
         update.message.reply_text('Mountain Name: ' + mountain_name + '\n\n'
-                                  + 'Mountain Image: ' + img_url.decode('UTF-8')
-                                  + '\n\n' + 'Hiking Route: ' + description.decode('UTF-8'))
+                                  + 'Mountain Image: ' + img_url
+                                  + '\n\n' + 'Hiking Route: ' + description)
 
 
 
@@ -213,13 +240,16 @@ def addMountain(update: Update, context: CallbackContext) -> None:
 
         for mountain_name, mountain_info in mountains.items():
             #push mountain name to mountain_name list in redis
-            if (redis1.hgetall(mountain_name) != None):
-                redis1.lrem('mountain_name', 0, mountain_name)
-            redis1.lpush('mountain_name', mountain_name)
+            # if (redis1.hgetall(mountain_name) != None):
+            #     redis1.lrem('mountain_name', 0, mountain_name)
+            # redis1.lpush('mountain_name', mountain_name)
             # 将每条hiking route以多个键值对的形式存储在redis中，key为山峰的名称，value为包含img_url和description两个字段的hash map
-            redis1.hmset(mountain_name,
-                         {'img_url': mountain_info['img_url'],
-                          'description': mountain_info['description']})
+            # redis1.hmset(mountain_name,
+            #              {'img_url': mountain_info['img_url'],
+            #               'description': mountain_info['description']})
+            record = {'mountain_name': mountain_name, 'img_url': mountain_info['img_url'], 'description': mountain_info['description']}
+            mountaincol.insert_one(record)
+            logging.info(record)
     except(IndexError, ValueError):
         logging.info('mountain info add fail!')
 
@@ -227,13 +257,18 @@ def addMountain(update: Update, context: CallbackContext) -> None:
 def checkHikingRoute(update: Update, context: CallbackContext) -> None:
     msg = ''
     try:
-        hiking_route_list = redis1.lrange('mountain_name',0,-1)
+        # hiking_route_list = redis1.lrange('mountain_name',0,-1)
+        mountain_info = mountaincol.find()
+        hiking_route_list = []
+        for result in mountain_info:
+            hiking_route_list.append(result)
         logging.info(hiking_route_list)
-        for mountain_name in hiking_route_list:
-            logging.info('mountain_name: ' + mountain_name.decode('UTF-8'))
+        for record in hiking_route_list:
+            mountain_name = record['mountain_name']
+            logging.info(mountain_name)
             # m_str = mountain_name.decode('UTF-8')
             # logging.info('m_str ' + m_str)
-            msg += mountain_name.decode('UTF-8') + ' \n'
+            msg += mountain_name + ' \n'
         update.message.reply_text('Mountain name \n' + msg + 'Type /photo mountain_name to check the mountain details')
     except(IndexError, ValueError):
         update.message.reply_text('Usage: /checkHikingRoute <mountain name>')
@@ -249,20 +284,20 @@ def cleanDB(update, context) -> None:
 
 
 #test
-def Movie(update, context) -> None:
-    try:
-        movie_name = redis1.lrange('movie_name',0,-1)
-        logging.info(movie_name)
-    except(IndexError,ValueError):
-        logging.info('check movie title fail!')
+# def Movie(update, context) -> None:
+#     try:
+#         movie_name = redis1.lrange('movie_name',0,-1)
+#         logging.info(movie_name)
+#     except(IndexError,ValueError):
+#         logging.info('check movie title fail!')
 
 #test
-def Mountain(update, context) -> None:
-    try:
-        mountain_name = redis1.lrange('mountain_name',0,-1)
-        logging.info(mountain_name)
-    except(IndexError,ValueError):
-        logging.info('check movie title fail!')
+# def Mountain(update, context) -> None:
+#     try:
+#         mountain_name = redis1.lrange('mountain_name',0,-1)
+#         logging.info(mountain_name)
+#     except(IndexError,ValueError):
+#         logging.info('check movie title fail!')
 
 
 def cancel(update: Update, context) -> int:
